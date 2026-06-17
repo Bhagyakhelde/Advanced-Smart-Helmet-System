@@ -1,0 +1,233 @@
+#include <esp_now.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include <HardwareSerial.h>
+
+// ================= PINS =================
+#define RELAY_PIN      23
+#define BUZZER_PIN     25
+
+// GSM800L UART
+#define GSM_RX         16
+#define GSM_TX         17
+
+// ================= LCD ==================
+LiquidCrystal_I2C lcd(0x27, 16, 2);   // Change 0x27 if needed
+
+// ================= GSM ==================
+HardwareSerial gsmSerial(1);
+
+// Phone number for alerts
+String phoneNumber = "+91XXXXXXXXXX";
+
+// ================= DATA =================
+typedef struct {
+  bool helmetWorn;
+  bool alcoholDetected;
+} HelmetData;
+
+HelmetData data;
+
+unsigned long lastReceived = 0;
+unsigned long lastSMS = 0;
+
+// =====================================================
+// ESP-NOW RECEIVE CALLBACK
+// =====================================================
+void onDataReceived(const esp_now_recv_info_t *info,
+                    const uint8_t *incomingData,
+                    int len) {
+
+  memcpy(&data, incomingData, sizeof(data));
+  lastReceived = millis();
+
+  Serial.printf("✅ Received! Helmet:%d Alcohol:%d\n",
+                data.helmetWorn,
+                data.alcoholDetected);
+}
+
+// =====================================================
+// SEND SMS FUNCTION
+// =====================================================
+void sendSMS(String message) {
+
+  Serial.println("📨 Sending SMS...");
+
+  gsmSerial.println("AT");
+  delay(1000);
+
+  gsmSerial.println("AT+CMGF=1");   // Text mode
+  delay(1000);
+
+  gsmSerial.print("AT+CMGS=\"");
+  gsmSerial.print(phoneNumber);
+  gsmSerial.println("\"");
+
+  delay(1000);
+
+  gsmSerial.print(message);
+
+  delay(500);
+
+  gsmSerial.write(26);   // CTRL+Z
+  delay(5000);
+
+  Serial.println("✅ SMS Sent");
+}
+
+// =====================================================
+// SETUP
+// =====================================================
+void setup() {
+
+  Serial.begin(115200);
+
+  // GPIO
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(BUZZER_PIN, OUTPUT);
+
+  digitalWrite(RELAY_PIN, LOW);
+
+  // LCD INIT
+  Wire.begin();
+  lcd.init();
+  lcd.backlight();
+
+  lcd.setCursor(0, 0);
+  lcd.print("SMART BIKE");
+  lcd.setCursor(0, 1);
+  lcd.print("Initializing");
+  delay(2000);
+  lcd.clear();
+
+  // GSM INIT
+  gsmSerial.begin(9600, SERIAL_8N1, GSM_RX, GSM_TX);
+
+  lcd.setCursor(0, 0);
+  lcd.print("Starting GSM");
+  delay(2000);
+
+  gsmSerial.println("AT");
+  delay(1000);
+
+  // WiFi Station Mode
+  WiFi.mode(WIFI_STA);
+
+  // PRINT BIKE MAC
+  Serial.print("Bike MAC: ");
+  Serial.println(WiFi.macAddress());
+
+  // ESP-NOW INIT
+  if (esp_now_init() != ESP_OK) {
+
+    Serial.println("ESP-NOW init failed");
+
+    lcd.clear();
+    lcd.setCursor(0, 0);
+    lcd.print("ESP NOW FAIL");
+
+    return;
+  }
+
+  esp_now_register_recv_cb(onDataReceived);
+
+  Serial.println("Bike ready ✓ Waiting for helmet data...");
+
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print("Bike Ready");
+  lcd.setCursor(0, 1);
+  lcd.print("Waiting Data");
+}
+
+// =====================================================
+// LOOP
+// =====================================================
+void loop() {
+
+  // Connection lost if no data for 2 sec
+  bool connectionLost = (millis() - lastReceived > 2000);
+
+  // Ignition logic
+  bool allowIgnition =
+      data.helmetWorn &&
+      !data.alcoholDetected &&
+      !connectionLost;
+
+  // Relay control
+  digitalWrite(RELAY_PIN, allowIgnition ? HIGH : LOW);
+
+  // =================================================
+  // LCD DISPLAY
+  // =================================================
+  lcd.clear();
+
+  if (connectionLost) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Helmet Offline");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Ignition OFF");
+  }
+  else if (!data.helmetWorn) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Wear Helmet");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Ignition OFF");
+  }
+  else if (data.alcoholDetected) {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Alcohol Found");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Engine Locked");
+  }
+  else {
+
+    lcd.setCursor(0, 0);
+    lcd.print("Helmet OK");
+
+    lcd.setCursor(0, 1);
+    lcd.print("Ignition ON ");
+  }
+
+  // =================================================
+  // BUZZER
+  // =================================================
+  if (!data.helmetWorn || data.alcoholDetected || connectionLost) {
+
+    digitalWrite(BUZZER_PIN, (millis() / 500) % 2);
+  }
+  else {
+
+    digitalWrite(BUZZER_PIN, LOW);
+  }
+
+  // =================================================
+  // GSM ALERT
+  // =================================================
+  if (data.alcoholDetected &&
+      millis() - lastSMS > 30000) {
+
+    sendSMS("Alert! Alcohol detected on bike rider.");
+
+    lastSMS = millis();
+  }
+
+  // =================================================
+  // SERIAL MONITOR
+  // =================================================
+  Serial.printf(
+      "Ignition:%d Helmet:%d Alcohol:%d Lost:%d\n",
+      allowIgnition,
+      data.helmetWorn,
+      data.alcoholDetected,
+      connectionLost);
+
+  delay(500);
+}
