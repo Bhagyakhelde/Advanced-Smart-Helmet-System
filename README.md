@@ -1,6 +1,5 @@
 # Advanced-Smart-Helmet-System
 Advanced Smart Helmet System for Rider Safety using IoT, Alcohol Detection, Accident Detection, and Emergency Alert Features.  
-# Advanced Smart Helmet System
 
 ## Overview
 The Advanced Smart Helmet System is an IoT-based rider safety solution designed to improve road safety and reduce accidents. The system ensures that the rider wears a helmet before starting the vehicle, detects alcohol consumption, monitors accidents, and provides emergency alerts when necessary.
