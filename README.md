@@ -1,4 +1,4 @@
-# Advanced-rider-safety-system
+# Advanced-Rider-Safety-System
 Advanced rider safety system for Rider Safety using IoT, Alcohol Detection, Accident Detection, and Emergency Alert Features.  
 
 ## Overview
